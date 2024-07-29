@@ -1,0 +1,103 @@
+---
+- name: Issue certificates
+  hosts: localhost
+  tasks:
+  # This directory will hold all files related to the certificate
+  # cert.pem      - Issued certificate
+  # chain.pem     - Intermediate certificate(s) required for establisting trust
+  # fullchain.pem - Certificate and all intermediates combined
+  # privkey.pem   - Certificate private key
+  # csr.pem       - Certificate signing request submitted for issuance
+  - name: Create cert directory
+    loop: "{{ acme_certs }}"
+    ansible.builtin.file:
+      path: acme/{{ item }}
+      state: directory
+
+  # Most everything should support ECC keys today, but RSA may still be the best choice for 100% compatiblity
+  - name: Generate private key
+    loop: "{{ acme_certs }}"
+    community.crypto.openssl_privatekey:
+      path: acme/{{ item }}/priv.pem
+      type: ECC
+      curve: secp256r1
+
+  # No need to fill out all details for Let's Encrypt as it will just be ignored
+  - name: Create CSR
+    loop: "{{ acme_certs }}"
+    community.crypto.openssl_csr:
+      path: acme/{{ item }}/csr.pem
+      privatekey_path: acme/{{ item }}/priv.pem
+      common_name: "{{ item }}"
+      subject_alt_name:
+        - "{{ item | regex_replace('^', 'DNS:') }}"
+
+  #
+  - name: Submit CSR and fetch DNS challenge
+    loop: "{{ acme_certs }}"
+    community.crypto.acme_certificate:
+      account_key_src: acme/acct_priv.pem
+      modify_account: false
+      acme_directory: "{{ acme_directory }}"
+      acme_version: 2
+      challenge: dns-01
+      src: acme/{{ item }}/csr.pem
+      cert: acme/{{ item}}/cert.pem
+      remaining_days: 10
+    register: dns_challenge
+
+  # Create DNS records for all challenges.
+  # This is a little tricky as we need to look at the results to find only the items needing a challenge, those with a 'changed' status.
+  # The challenge data is then filtered out and combined to a list we can loop over
+  - name: Create challege DNS records
+    loop: "{{ dns_challenge.results | selectattr('changed', 'true') | map(attribute='challenge_data_dns') | combine | dict2items }}"
+    community.aws.route53:
+      zone: "{{ acme_zone }}"
+      record: "{{ item.key }}"
+      type: TXT
+      ttl: 60
+      state: present
+      overwrite: true
+      wait: true
+      # Note: item.value is a list of TXT entries, and route53
+      # requires every entry to be enclosed in quotes
+      value: "{{ item.value | map('community.dns.quote_txt', always_quote=true) | list }}"
+
+
+### If using AD DNS or BIND for authoritative DNS, RFC2136 'nsupdate' is probably the way to go
+### UNTESTED!
+#  - name: Create challege DNS record
+#    loop: "{{ dns_challenge.results | selectattr('changed', 'true') | map(attribute='challenge_data_dns') | combine | dict2items }}"
+#    community.general.nsupdate
+#      key_name: "ansible_acme"
+#      key_secret: "..."
+#      server: "10.0.0.1"
+#      zone: "{{ acme_zone }}"
+#      record: "{{ item.key }}"
+#      type: TXT
+#      ttl: 60
+#      value: "{{ item.value | map('community.dns.quote_txt', always_quote=true) | list }}"
+
+### When using nsupdate, we don't have the ability to be notified that all replications have completed
+### It should be possible to write an elegant task to query all servers in the NS record to check, but 
+### an easy option is to just wait for a little bit
+#  - name: Wait for DNS propogation
+#    ansible.builtin.wait_for:
+#      timeout: 60
+
+  ### Second run of acme_certificate is passed the 'data' parameter which will attempt validation
+  ### and actually have the certificate issued
+  - name: Request validation and fetch certs
+    loop: "{{ dns_challenge.results | selectattr('changed', 'true') }}"
+    community.crypto.acme_certificate:
+      account_key_src: acme/acct_priv.pem
+      modify_account: false
+      acme_directory: "{{ acme_directory }}"
+      acme_version: 2
+      challenge: dns-01
+      src: acme/{{ item.item }}/csr.pem
+      cert: acme/{{ item.item }}/cert.pem
+      fullchain: acme/{{ item.item }}/fullchain.pem
+      chain: acme/{{ item.item }}/chain.pem
+      remaining_days: 10
+      data: "{{ item }}"

@@ -1,0 +1,17 @@
+---
+ungrouped:
+  hosts:
+    localhost:
+      ansible_connection: local
+      acme_directory: https://acme-staging-v02.api.letsencrypt.org/directory
+      acme_contacts:
+        - mailto:certmon@example.com
+      acme_certs:
+        - test.example.com
+        - test2.example.com
+      acme_zone: example.com
+apache_servers:
+  hosts:
+    crushinator:
+      acme_certs:
+        - test.example.com

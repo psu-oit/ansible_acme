@@ -1,0 +1,23 @@
+---
+- name: Create ACME account
+  hosts: localhost
+  tasks:
+    - name: Create acme directory
+      ansible.builtin.file:
+        path: acme
+        state: directory
+
+    - name: Create account private key
+      community.crypto.openssl_privatekey:
+        path: acme/acct_priv.pem
+        type: ECC
+        curve: secp256r1
+
+    - name: Create account
+      community.crypto.acme_account:
+        account_key_src: acme/acct_priv.pem
+        acme_directory: "{{ acme_directory }}"
+        acme_version: 2
+        state: present
+        terms_agreed: true
+        contact: "{{ acme_contacts }}"

@@ -1,0 +1,34 @@
+---
+- name: Issues certs
+  hosts: apache_servers
+  tasks:
+  ### Fullchain contains the certificate and any required intermediates.
+  ### Most servers are compatible with this, otherwise deploy seperately
+  - name: Deploy fullchain
+    loop: "{{ acme_certs }}"
+    become: true
+    register: fullchain
+    ansible.builtin.copy:
+      src: acme/{{ item }}/fullchain.pem
+      dest: /etc/pki/tls/certs/{{ item }}.crt
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Deploy private key
+    loop: "{{ acme_certs }}"
+    become: true
+    register: privkey
+    ansible.builtin.copy:
+      src: acme/{{ item }}/priv.pem
+      dest: /etc/pki/tls/private/{{ item }}.key
+      owner: root
+      group: root
+      mode: '0600'
+
+  - name: Reload apache
+    become: true
+    when: fullchain is changed or privkey is changed
+    ansible.builtin.service:
+      name: httpd
+      state: reloaded
