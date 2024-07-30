@@ -19,7 +19,7 @@ This file contains neccessary information about the managed nodes. The acme_cert
 
 ### account.yml
 
-This code creates the 'account' for authenticating with the ACME API. The account is used for setting the contacts for issued certificate and authenticating requests/responses through use of it's private key.
+This code creates the 'account' for use with the ACME directory. The account is used for setting the contacts for issued certificate and authenticating requests/responses through use of it's private key.
 
 `ansible-playbook -i inventory.yml account.yml`
 

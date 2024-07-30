@@ -1,5 +1,5 @@
 ---
-- name: Issues certs
+- name: Deploy certs to apache servers
   hosts: apache_servers
   tasks:
   ### Fullchain contains the certificate and any required intermediates.
